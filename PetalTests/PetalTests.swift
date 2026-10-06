@@ -686,6 +686,18 @@ final class PureLogicTests: XCTestCase {
         XCTAssertThrowsError(try ExportManager.write("c", date: date, directory: missing))
     }
 
+    func testInstanceLockAdmitsOneHolderAndFreesOnRelease() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("Petal.instance-lock")   // parent doesn't exist yet
+        var first: InstanceLock? = InstanceLock(url: url)
+        XCTAssertNotNil(first)
+        XCTAssertNil(InstanceLock(url: url), "a second copy must not get the lock")
+        first = nil   // the holder quits (the kernel does the same on a crash)
+        XCTAssertNotNil(InstanceLock(url: url))
+        _ = first
+    }
+
     @MainActor
     func testShortcutConflictsAreDetected() {
         let settings = AppSettings(defaults: UserDefaults(suiteName: "PetalShortcuts-\(UUID().uuidString)")!)

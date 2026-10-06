@@ -3686,6 +3686,43 @@ struct PreferencesView: View {
 
 // MARK: - 12. App entry point
 
+/// Only one Petal may run at a time. Every copy (the installed app, a `build.sh` build, an
+/// Xcode run) shares one sandbox container and therefore one SwiftData store, so a second
+/// copy would treat the first one's running sessions as crash orphans and close them, then
+/// overwrite its edits — and only one copy can own the global shortcuts anyway.
+///
+/// The lock is an `flock` on a file in the container, not a scan of running apps: the
+/// kernel releases it the moment its holder exits — even on a crash — and two copies
+/// launched together can never both win (or both lose) the race.
+final class InstanceLock {
+    /// Posted by a copy that lost the race, asking the running one to show itself.
+    /// Sandboxed apps may post distributed notifications only without a payload.
+    static let showRequest = Notification.Name("com.local.petal.showPopover")
+
+    private let fd: Int32
+
+    /// `nil` only when another copy already holds the lock. If the lock file can't be
+    /// opened at all, launch proceeds unguarded rather than refusing to start.
+    init?(url: URL) {
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        fd = open(url.path, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
+        guard fd >= 0 else {
+            petalLog.error("Instance lock unavailable (errno \(errno)); not guarding against a second copy")
+            return
+        }
+        if flock(fd, LOCK_EX | LOCK_NB) != 0 {
+            close(fd)
+            return nil
+        }
+    }
+
+    deinit { if fd >= 0 { close(fd) } }
+
+    static var defaultURL: URL {
+        URL.applicationSupportDirectory.appendingPathComponent("Petal.instance-lock")
+    }
+}
+
 @main
 struct PetalApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -3705,6 +3742,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var settings: AppSettings { AppSettings.shared }
     private var observers: [NSObjectProtocol] = []
     private var isTerminating = false
+    private var instanceLock: InstanceLock?
 
     static var isRunningTests: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
@@ -3713,6 +3751,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard !Self.isRunningTests else { return }
         NSApp.setActivationPolicy(.accessory)   // belt-and-braces with LSUIElement
+
+        // Must happen before the store is opened: the crash guard in `load()` assumes no
+        // other copy is running.
+        guard let lock = InstanceLock(url: InstanceLock.defaultURL) else {
+            petalLog.notice("Another copy of Petal is already running; showing it instead")
+            DistributedNotificationCenter.default().postNotificationName(InstanceLock.showRequest, object: nil,
+                                                                         userInfo: nil, deliverImmediately: true)
+            NSApp.terminate(nil)
+            return
+        }
+        instanceLock = lock
         ProcessInfo.processInfo.disableAutomaticTermination("Petal keeps time in the menu bar")
 
         var storeError: String?
@@ -3761,8 +3810,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         observers.append(center.addObserver(forName: .NSSystemClockDidChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.store?.clockChanged() }
         })
+        observers.append(DistributedNotificationCenter.default().addObserver(forName: InstanceLock.showRequest, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.statusBar?.showPopover() }
+        })
 
         store.load()
+    }
+
+    /// Launching Petal while it already runs (Finder, Spotlight, Launchpad) sends a reopen
+    /// event to this copy. With no Dock icon or window, the popover is the only thing to show.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        statusBar?.showPopover()
+        return false
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
