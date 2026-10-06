@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Sandboxed. No network entitlement: the OS itself blocks every socket. -->
+	<key>com.apple.security.app-sandbox</key><true/>
+	<!-- CSV export to ~/Downloads. (There is no "write-only" Downloads entitlement;
+	     read-write is the only one Apple provides.) -->
+	<key>com.apple.security.files.downloads.read-write</key><true/>
+</dict>
+</plist>

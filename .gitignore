@@ -1,0 +1,41 @@
+# Xcode build output (build.sh uses -derivedDataPath build)
+build/
+DerivedData/
+*.xcresult
+xcuserdata/
+*.xcworkspace/xcshareddata/swiftpm/
+
+# XcodeGen — regenerated from project.yml, never commit the generated project
+Petal.xcodeproj/
+
+# Swift Package Manager (if added later)
+.build/
+.swiftpm/
+
+# macOS
+.DS_Store
+._*
+
+# Compiled app bundles
+*.app
+*.ipa
+*.dSYM/
+
+# Signing / distribution
+*.p12
+*.mobileprovision
+dist/
+
+# Python (reference model)
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Xcode Instruments traces
+*.trace
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
